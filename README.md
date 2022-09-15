@@ -1,4 +1,4 @@
-# Helios
+# 🌞 Helios
 > ERC-1155-based Exchange
 
 LPs are tracked under [multi-token standard](https://eips.ethereum.org/EIPS/eip-1155).
@@ -14,9 +14,3 @@ Currently, pairs are supported. Can use raw ETH too.
 - [X] XYK swapper
 - [ ] Concentrated swapper
 - [ ] Incentives
-
-
-
-
-
-
