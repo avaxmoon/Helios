@@ -1,16 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {IHelios, ERC1155TokenReceiver, Helios} from "../Helios.sol";
-import {HeliosReference} from "../HeliosReference.sol";
+import {IHelios, ERC1155TokenReceiver, HeliosReference} from "../HeliosReference.sol";
 import {XYKswapper} from "../swappers/XYKswapper.sol";
 import {MockERC20} from "@solbase/test/utils/mocks/MockERC20.sol";
 
 import "forge-std/Test.sol";
 
-contract HeliosTest is ERC1155TokenReceiver, Test {
-    Helios helios;
-    HeliosReference heliosRef;
+contract HeliosReferenceTest is ERC1155TokenReceiver, Test {
+    HeliosReference helios;
     XYKswapper xykSwapperContract;
     IHelios xykSwapper;
     address token0;
@@ -26,15 +24,14 @@ contract HeliosTest is ERC1155TokenReceiver, Test {
     uint256 id020;
 
     function setUp() public {
-        helios = new Helios();
+        helios = new HeliosReference();
         xykSwapperContract = new XYKswapper();
         xykSwapper = IHelios(address(xykSwapperContract));
 
         token0 = address(new MockERC20("Token0", "TKN0", 18));
         token1 = address(new MockERC20("Token1", "TKN1", 18));
         token2 = address(new MockERC20("Token2", "TKN2", 18));
-
-        heliosRef = new HeliosReference();
+        require (token1>token0 && token0>token2, "tests assume addr(token1)>addr(token0)>addr(token2)");
 
         MockERC20(token0).mint(address(this), 1_000_000 ether);
         MockERC20(token1).mint(address(this), 1_000_000 ether);
@@ -43,10 +40,6 @@ contract HeliosTest is ERC1155TokenReceiver, Test {
         MockERC20(token0).approve(address(helios), 1_000_000_0 ether);
         MockERC20(token1).approve(address(helios), 1_000_000_0 ether);
         MockERC20(token2).approve(address(helios), 1_000_000_0 ether);
-
-        MockERC20(token0).approve(address(heliosRef), 1_000_000_0 ether);
-        MockERC20(token1).approve(address(heliosRef), 1_000_000_0 ether);
-        MockERC20(token2).approve(address(heliosRef), 1_000_000_0 ether);
 
         (id01, ) = helios.createPair(
             address(this),
@@ -109,72 +102,10 @@ contract HeliosTest is ERC1155TokenReceiver, Test {
             0,
             ""
         );
-
-        heliosRef.createPair(
-            address(this),
-            token0,
-            token1,
-            1_000 ether,
-            1_000 ether,
-            xykSwapper,
-            30,
-            ""
-        );
-        heliosRef.createPair(
-            address(this),
-            token1,
-            token2,
-            1_000 ether,
-            1_000 ether,
-            xykSwapper,
-            30,
-            ""
-        );
-        heliosRef.createPair(
-            address(this),
-            token0,
-            token2,
-            1_000 ether,
-            1_000 ether,
-            xykSwapper,
-            30,
-            ""
-        );
-
-        heliosRef.createPair(
-            address(this),
-            token0,
-            token1,
-            1_000 ether,
-            1_000 ether,
-            xykSwapper,
-            0,
-            ""
-        );
-        heliosRef.createPair(
-            address(this),
-            token1,
-            token2,
-            1_000 ether,
-            1_000 ether,
-            xykSwapper,
-            0,
-            ""
-        );
-        heliosRef.createPair(
-            address(this),
-            token0,
-            token2,
-            1_000 ether,
-            1_000 ether,
-            xykSwapper,
-            0,
-            ""
-        );
     }
 
     function testHeliosCreation() public payable {
-        helios = new Helios();
+        helios = new HeliosReference();
     }
 
     function testXYKpairCreation() public payable {
@@ -204,7 +135,6 @@ contract HeliosTest is ERC1155TokenReceiver, Test {
         (, , , uint112 r0, uint112 r1, ) = helios.pairs(id01);
 
         if (q0 + amountIn != r0) {
-            console.log(q0 + amountIn, r0);
             revert("reserve0 is wrong");
         }
         if (q1 - amountOut != r1) {
@@ -223,7 +153,6 @@ contract HeliosTest is ERC1155TokenReceiver, Test {
         vm.assume(amountIn > 100000 && amountIn < b0);
         uint256 b1 = MockERC20(token1).balanceOf(address(this));
         uint256 b2 = MockERC20(token2).balanceOf(address(this));
-
 
         (, , , uint112 p0, uint112 p1, ) = helios.pairs(id01);
         (, , , uint112 q2, uint112 q1, ) = helios.pairs(id12);
@@ -323,18 +252,5 @@ contract HeliosTest is ERC1155TokenReceiver, Test {
         if (b2 != MockERC20(token2).balanceOf(address(this))) {
             revert("token 2 balance is messed up");
         }
-    }
-
-    function testDiffSwap(uint256 amountIn) public payable {
-        uint256 b0 = MockERC20(token0).balanceOf(address(this));
-        vm.assume(amountIn > 100000 && amountIn < b0/4);
-
-        uint256 amountOut1 = helios.swap(address(this), id01, token0, amountIn);
-        uint256 amountOut2 = helios.swap(address(this), id01, token0, amountIn);
-        uint256 amountOutRef1 = heliosRef.swap(address(this), id01, token0, amountIn);
-        uint256 amountOutRef2 = heliosRef.swap(address(this), id01, token0, amountIn);
-
-        require(amountOut1 == amountOutRef1, "amountOut1 does not match");
-        require(amountOut2 == amountOutRef2, "amountOut2 does not match");
     }
 }

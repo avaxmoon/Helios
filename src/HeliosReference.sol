@@ -9,7 +9,7 @@ import {ERC1155, ERC1155TokenReceiver} from "@solbase/tokens/ERC1155.sol";
 
 /// @notice ERC1155 vault with router and liquidity pools.
 /// @author z0r0z.eth (SolDAO)
-contract Helios is
+contract HeliosReference is
     OwnedThreeStep(tx.origin),
     SafeMulticallable,
     ERC1155,
@@ -336,24 +336,16 @@ contract Helios is
             } else {
                 pair.token0.safeTransfer(to, amountOut);
             }
-            // Instead of performing separate operations on the slot like so
-            // pair.reserve0 -= uint112(amountOut);
-            // pair.reserve1 += uint112(amountIn);
-            // We combine the updates into one write
-            uint256 combinedUpdate = (amountIn << 112) - amountOut;
-            assembly {
-                sstore(add(pair.slot, 3), add(sload(add(pair.slot, 3)), combinedUpdate))
-            }
+
+            pair.reserve0 -= uint112(amountOut);
+
+            pair.reserve1 += uint112(amountIn);
         } else {
             pair.token1.safeTransfer(to, amountOut);
-            // Instead of performing separate operations on the slot like so
-            // pair.reserve0 += uint112(amountIn);
-            // pair.reserve1 -= uint112(amountOut);
-            // We combine the updates into one write
-            uint256 combinedUpdate = (amountOut << 112) - amountIn;
-            assembly {
-                sstore(add(pair.slot, 3), sub(sload(add(pair.slot, 3)), combinedUpdate))
-            }
+
+            pair.reserve0 += uint112(amountIn);
+
+            pair.reserve1 -= uint112(amountOut);
         }
 
         emit Swap(to, id, tokenIn, amountIn, amountOut);
