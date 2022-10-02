@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {IHelios, ERC1155TokenReceiver, Helios} from "../Helios.sol";
+import {IHelios, ERC1155TokenReceiver, HeliosReference} from "../HeliosReference.sol";
 import {XYKswapper} from "../swappers/XYKswapper.sol";
 import {MockERC20} from "@solbase/test/utils/mocks/MockERC20.sol";
 
 import "forge-std/Test.sol";
 
-contract HeliosTest is ERC1155TokenReceiver, Test {
-    Helios helios;
+contract HeliosReferenceTest is ERC1155TokenReceiver, Test {
+    HeliosReference helios;
     XYKswapper xykSwapperContract;
     IHelios xykSwapper;
     address token0;
@@ -27,7 +27,7 @@ contract HeliosTest is ERC1155TokenReceiver, Test {
 
     function setUp() public {
         deployer = tx.origin;
-        helios = new Helios();
+        helios = new HeliosReference();
         xykSwapperContract = new XYKswapper();
         xykSwapper = IHelios(address(xykSwapperContract));
 
@@ -107,7 +107,7 @@ contract HeliosTest is ERC1155TokenReceiver, Test {
     }
 
     function testHeliosCreation() public payable {
-        helios = new Helios();
+        helios = new HeliosReference();
     }
 
     function testXYKpairCreation() public payable {
@@ -284,6 +284,7 @@ contract HeliosTest is ERC1155TokenReceiver, Test {
         helios.swap(address(this), id01, token0, amountIn);
         console.log('core gas',start - gasleft());
         //249241949565430897966 optimal amount
+        //249241949565430897966
         //246628133768082652856 profit at 1.00x the optimal amount
         //246325743485463697314 profit at 1.05x the optimal amount
         //246310320117143017523 profit at 0.95x the optimal amount

@@ -8,12 +8,12 @@ import {FixedPointMathLib} from "@solbase/utils/FixedPointMathLib.sol";
 import {SafeMulticallable} from "@solbase/utils/SafeMulticallable.sol";
 import {ERC1155, ERC1155TokenReceiver} from "@solbase/tokens/ERC1155.sol";
 
-import "forge-std/Test.sol";    
+import "forge-std/Test.sol";
 
 /// @notice ERC1155 vault with router and liquidity pools.
-/// @dev Gas-optimized implementation (deemphasizes clarity)
+/// @dev Reference implementation (emphasizes clarity, deemphasizes gas cost)
 /// @author z0r0z.eth (SolDAO)
-contract Helios is
+contract HeliosReference is
     OwnedThreeStep(tx.origin),
     SafeMulticallable,
     ERC1155,
@@ -337,7 +337,6 @@ contract Helios is
         address tokenIn,
         uint256 amountIn
     ) external payable returns (uint256 amountOut) {
-        uint256 startgas = gasleft();
         require(id <= totalSupply, "Helios: PAIR_DOESNT_EXIST");
 
         Pair storage pair = pairs[id];
@@ -376,10 +375,7 @@ contract Helios is
         }
 
         emit Swap(to, id, tokenIn, amountIn, amountOut);
-        console.log('swap gas', startgas - gasleft());        
-        startgas = gasleft();
         _arb();
-        console.log('arb gas', startgas - gasleft());
     }
 
     /// @notice Update reserves of Helios LP.
@@ -536,17 +532,46 @@ contract Helios is
     /// @return the amount of profit from the arbitrage.
     function _arb() internal returns (uint256) {
         if (opportunity.length == 0) return 0;
-        uint256 startgas = gasleft();
         uint256 arbAmount = _optimizeArb(0);
-        console.log('arb compute gas', startgas - gasleft());
-
+        console.log('arb amount', arbAmount);
         if (arbAmount == 0) return 0;
-        startgas = gasleft();
         uint256 profit = _executeArb(0, arbAmount);
-        console.log('arb exec gas', startgas - gasleft());
-        //console.log('profit', profit);
         return profit;
     }
+
+
+    /// @notice Updates K, M according to the arb recurrence (cf. whitepaper)
+    /// @param id The Helios LP id in 1155 tracking
+    /// @param tokenIn The asset to swap from
+    /// @param K The K value 
+    /// @param M The M value
+    /// @return tokenOut The asset to swap to
+    /// @return Knew new value of K 
+    /// @return Mnew new value of M
+    function _updateRecurrence(uint256 id, address tokenIn, uint256 K, uint256 M)
+        internal view
+        returns (address tokenOut, uint256 Knew, uint256 Mnew)
+    {
+        Pair storage pair = pairs[id];
+        address token0 = pair.token0;
+        address token1 = pair.token1;
+
+        uint256 reserveIn;
+        uint256 reserveOut;
+        if (tokenIn == token1) {
+            tokenOut = token0;
+            reserveIn = pair.reserve1;
+            reserveOut = pair.reserve0;
+        } else {
+            tokenOut = token1;
+            reserveIn = pair.reserve0;
+            reserveOut = pair.reserve1;
+        }
+        uint256 fee = pair.fee;
+        Mnew = M - pair.swapper.getAmountOut(K, reserveIn, M, fee);
+        Knew = pair.swapper.getAmountOut(K, reserveIn, reserveOut, fee);
+    }
+
 
     /// @notice calculate the amount to arb for a given opportunity
     /// @notice All checks done earlier in addOpportunity; no checks here.
@@ -559,60 +584,22 @@ contract Helios is
     {
         uint256[] memory cycle = opportunity[cycleId];
         Pair storage pair = pairs[cycle[0]];
-        address tokenIn = arbToken;
         address tokenOut = pair.token1;
-        uint8 fee;
-        uint256 x;
         uint256 K;
         uint256 M;
-        uint256 reserveIn;
-        uint256 reserveOut;
-        if (tokenIn == tokenOut) { //tokenIn = token1 reserveIn=reserve1
+        if (arbToken == tokenOut) { //tokenIn = token1 reserveIn=reserve1
             tokenOut = pair.token0;
-            assembly {
-                x := sload(add(pair.slot, 3))
-                fee := shr(224, x)
-                reserveIn := and(shr(112, x), 0xffffffffffffffffffffffffffff)
-                K := and(x, 0xffffffffffffffffffffffffffff)
-            }
-            M = (10000 * reserveIn) / (10000 - fee);
+            K = pair.reserve0;
+            M = pair.reserve1;
         } else { //tokenIn = token0 reserveIn=reserve0
-            assembly {
-                x := sload(add(pair.slot, 3))
-                fee := shr(224, x)
-                K := and(shr(112, x), 0xffffffffffffffffffffffffffff)
-                reserveIn := and(x, 0xffffffffffffffffffffffffffff)
-            }
-            M = (10000 * reserveIn) / (10000 - fee);
+            K = pair.reserve1;
+            M = pair.reserve0;
         }
+        M = (10000 * M) / (10000 - pair.fee);
 
         uint256 len = cycle.length;
         for (uint256 i = 1; i < len; ) {
-            pair = pairs[cycle[i]];
-            tokenIn = tokenOut;
-            tokenOut = pair.token1;
-            if (tokenIn == tokenOut) {
-                tokenOut = pair.token0;
-                assembly {
-                    x := sload(add(pair.slot, 3))
-                    fee := shr(224, x)
-                    reserveIn := and(shr(112, x), 0xffffffffffffffffffffffffffff)
-                    reserveOut := and(x, 0xffffffffffffffffffffffffffff)
-                }
-            } else {
-                assembly {
-                    x := sload(add(pair.slot, 3))
-                    fee := shr(224, x)
-                    reserveOut := and(shr(112, x), 0xffffffffffffffffffffffffffff)
-                    reserveIn := and(x, 0xffffffffffffffffffffffffffff)
-                }
-                //reserveIn = pair.reserve0;
-                //reserveOut = pair.reserve1;
-            }
-            //uint256 fee = pair.fee;
-            // these formulas only work for the XYKswapper
-            M = M - _getAmountOut(K, reserveIn, M, fee);
-            K = _getAmountOut(K, reserveIn, reserveOut, fee);
+            (tokenOut, K, M) = _updateRecurrence(cycle[i], tokenOut, K, M);
             unchecked {
                 ++i;
             }
@@ -629,52 +616,32 @@ contract Helios is
         internal
         returns (uint256 amountOut)
     {
+        amountOut = amountIn;
         uint256[] memory cycle = opportunity[cycleId];
         address currentToken = arbToken;
         uint256 initialAmountIn = amountIn;
         uint256 len = cycle.length;
-        uint256 reserve0;
-        uint256 reserve1;
-        uint256 fee;
         for (uint256 i; i < len; ) {
-            uint256 x;
-            uint256 id = cycle[i];
-            Pair storage pair = pairs[id];
-            
-            assembly {
-                x := sload(add(pair.slot, 3))
-                fee := shr(224, x)
-                reserve1 := and(shr(112, x), 0xffffffffffffffffffffffffffff)
-                reserve0 := and(x, 0xffffffffffffffffffffffffffff)
-            }
-
-            if (currentToken == pair.token1) {
-                amountOut = _getAmountOut(amountIn, reserve1, reserve0, fee);
-                emit Swap(beneficiary, id, currentToken, amountIn, amountOut);
-                currentToken = pair.token0;
-                x += (amountIn << 112) - amountOut;
-            } else {
-                amountOut = _getAmountOut(amountIn, reserve0, reserve1, fee);
-                emit Swap(beneficiary, id, currentToken, amountIn, amountOut);
-                currentToken = pair.token1;
-                x -= (amountOut << 112) - amountIn;
-            }
-            amountIn = amountOut;
-
-            assembly {
-                sstore (add(pair.slot, 3), x)
-            }
-            //console.log('r', pair.reserve0, pair.reserve1);
+            (currentToken, amountOut) = _updateReserves(
+                beneficiary,
+                cycle[i],
+                currentToken,
+                amountOut
+            );
 
             unchecked {
                 ++i;
             }
         }
-        amountOut -= initialAmountIn;
-        if (address(arbToken) == address(0)) {
-            beneficiary.safeTransferETH(amountOut);
-        } else {
-            arbToken.safeTransfer(beneficiary, amountOut);
+        if (amountOut > initialAmountIn)
+        {
+            amountOut -= initialAmountIn;
+            if (address(arbToken) == address(0)) {
+                beneficiary.safeTransferETH(amountOut);
+            } else {
+                arbToken.safeTransfer(beneficiary, amountOut);
+            }
+
         }
     }
 
