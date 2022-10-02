@@ -20,6 +20,6 @@
       "update": "forge update",
       "test": "forge clean && forge test",
       "snapshot": "forge clean && forge snapshot",
-      "lint": "prettier --write src/**/*.sol && prettier --write src/*.sol"
+      "lint": "prettier --print-width 120 --write src/**/*.sol && prettier --print-width 120 --write src/*.sol"
   }
 }
